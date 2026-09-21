@@ -23,7 +23,7 @@ The backend migrates automatically on Compose startup. The client runs at port 3
 
 ## Validation
 
-CI runs migration drift detection, Django migrations and pytest, plus Vitest and the production Next.js build. Run locally with `cd backend; pytest` and `cd frontend; npm install; npm run test; npm run build`. In this coding environment, Docker is unavailable and package-install attempts did not complete, so PostgreSQL/Redis integration, pytest, Vitest, and the Next.js production build still need to be run in Docker or a normal local shell.
+CI runs migration drift detection, Django migrations and pytest, plus Vitest and the production Next.js build. Run locally with `cd backend; pytest` and `cd frontend; npm install; npm run test; npm run build`. Backend checks and pytest pass locally; TypeScript strict checking passes. Docker is unavailable in this coding environment, while Vitest and Next.js build workers are blocked by its Windows process-spawn policy, so those must run in Docker or a normal local shell.
 
 See [architecture](docs/architecture.md), [database model](docs/database.md), and [API documentation](docs/api.md).
 
