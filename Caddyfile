@@ -1,0 +1,130 @@
+# Caddyfile — Production reverse proxy configuration for SprintForge
+#
+# REPLACE "example.com" and "api.example.com" with your actual domain names.
+# Caddy automatically obtains and renews TLS certificates from Let's Encrypt.
+#
+# If you only have ONE domain (e.g. example.com) see the single-domain
+# alternative at the bottom of this file.
+#
+# After editing, apply:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml exec caddy \
+#     caddy reload --config /etc/caddy/Caddyfile
+
+# ── Frontend ─────────────────────────────────────────────────────────────────
+example.com {
+    # Proxy everything to the Next.js standalone server
+    reverse_proxy frontend:3000
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    # Compression
+    encode gzip
+
+    log {
+        output stderr
+        format console
+        level WARN
+    }
+}
+
+# ── Backend API + WebSockets ──────────────────────────────────────────────────
+api.example.com {
+    # Serve Django static files directly from the shared volume (faster, no Python overhead)
+    handle /static/* {
+        root * /srv
+        file_server
+    }
+
+    # Serve uploaded media files directly
+    handle /media/* {
+        root * /srv
+        file_server
+    }
+
+    # Health check — allow internal monitoring tools without auth
+    handle /health/ {
+        reverse_proxy backend:8000
+    }
+
+    # WebSocket connections — Caddy handles the upgrade automatically
+    handle /ws/* {
+        reverse_proxy backend:8000 {
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    # All other requests → Django/Daphne
+    handle {
+        reverse_proxy backend:8000 {
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    # Upload size limit: 12 MiB (slightly above the 10 MiB app limit)
+    request_body {
+        max_size 12MB
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    encode gzip
+
+    log {
+        output stderr
+        format console
+        level WARN
+    }
+}
+
+# ===========================================================================
+# SINGLE-DOMAIN ALTERNATIVE
+# If you prefer everything under one domain (e.g. example.com for frontend,
+# example.com/api/ for backend), uncomment and adapt this block instead:
+#
+# example.com {
+#     handle /api/* {
+#         reverse_proxy backend:8000 {
+#             header_up X-Forwarded-Proto {scheme}
+#         }
+#     }
+#     handle /ws/* {
+#         reverse_proxy backend:8000 {
+#             header_up X-Forwarded-Proto {scheme}
+#         }
+#     }
+#     handle /static/* {
+#         root * /srv
+#         file_server
+#     }
+#     handle /media/* {
+#         root * /srv
+#         file_server
+#     }
+#     handle /health/ {
+#         reverse_proxy backend:8000
+#     }
+#     handle {
+#         reverse_proxy frontend:3000
+#     }
+#     encode gzip
+# }
+# ===========================================================================
+
+# ── HTTP → HTTPS redirect (handled automatically by Caddy) ───────────────────
+# Caddy redirects HTTP to HTTPS for every site it manages.
+# No explicit configuration needed.

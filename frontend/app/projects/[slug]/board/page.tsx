@@ -1,3 +1,12 @@
 "use client";
-import {useEffect,useState} from "react";import {useParams,useRouter} from "next/navigation";import {api} from "@/lib/api";import type {Project} from "@/lib/types";import {KanbanBoard} from "@/components/KanbanBoard";
-export default function Board(){const {slug}=useParams<{slug:string}>();const [project,setProject]=useState<Project>();const [error,setError]=useState("");const router=useRouter();useEffect(()=>{if(!localStorage.getItem("sf_access")){router.replace("/login");return}api<Project>(`/projects/${slug}/`).then(setProject).catch(e=>setError(e.message))},[slug,router]);if(error)return <main className="p-8 text-red-600">{error}</main>;if(!project)return <main className="p-8">Loading project…</main>;return <main className="min-h-screen p-6"><header className="mx-auto mb-8 flex max-w-[1500px] items-center justify-between"><div><a href="/projects" className="text-sm text-blue-700">← Projects</a><h1 className="mt-1 text-3xl font-bold">{project.name}</h1><p className="text-slate-500">Kanban board · live updates enabled</p></div></header><div className="mx-auto max-w-[1500px] overflow-x-auto"><KanbanBoard project={slug}/></div></main>}
+import { useParams } from "next/navigation";
+import { KanbanBoard } from "@/components/KanbanBoard";
+
+export default function BoardPage() {
+  const { slug } = useParams<{ slug: string }>();
+  return (
+    <div className="p-6">
+      <KanbanBoard project={slug} />
+    </div>
+  );
+}

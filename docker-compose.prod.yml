@@ -1,0 +1,165 @@
+# docker-compose.prod.yml — Production configuration for Oracle Cloud / self-hosted VM
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This file OVERRIDES the base docker-compose.yml for production:
+# - Replaces 'next dev' with the production Next.js standalone build
+# - Adds Caddy reverse proxy for HTTPS and WebSocket termination
+# - Disables public exposure of Django/Next.js ports
+# - Adds restart: unless-stopped to all services
+# - Adds persistent volumes for media files and static files
+# - Adds proper health checks and depends_on conditions
+
+services:
+
+  # ── Reverse Proxy ──────────────────────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine          # official multi-arch image (amd64 + arm64)
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - backend_static:/srv/static:ro       # serve Django staticfiles directly
+      - backend_media:/srv/media:ro         # serve Django media/uploads directly
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    networks:
+      - public
+      - internal
+    logging:
+      driver: "json-file"
+      options: {max-size: "10m", max-file: "3"}
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Pass production URLs so Next.js bakes them into the client bundle
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.example.com}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://api.example.com}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.example.com}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://api.example.com}
+    # NOT exposed to the host — Caddy reaches it over the internal network
+    expose:
+      - "3000"
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options: {max-size: "10m", max-file: "3"}
+
+  # ── Backend ────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Ensure Daphne serves media via the /media/ route in production
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      DJANGO_DEBUG: "false"
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
+    volumes:
+      - backend_media:/app/media            # persist uploaded files
+      - backend_static:/app/staticfiles     # collectstatic output
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options: {max-size: "20m", max-file: "5"}
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine               # official multi-arch image
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sprintforge}
+      POSTGRES_USER: ${POSTGRES_USER:-sprintforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # NOT exposed to the host — internal network only
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sprintforge} -d ${POSTGRES_DB:-sprintforge}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options: {max-size: "10m", max-file: "3"}
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine                   # official multi-arch image
+    restart: unless-stopped
+    # AOF persistence: survive container restarts without losing channel state
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options: {max-size: "5m", max-file: "3"}
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_media:
+    driver: local
+  backend_static:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  public:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true        # no direct internet access for db/redis/backend/frontend

@@ -1,39 +1,81 @@
+# docker-compose.yml — Development configuration
+# Run: docker compose up --build
+#
+# This is the DEVELOPMENT compose file. It mounts source directories as volumes
+# so code changes reload without rebuilding. It intentionally exposes ports
+# directly to localhost so you can hit them with a browser or curl.
+#
+# For PRODUCTION use docker-compose.prod.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
 services:
+
   db:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-sprintforge}
       POSTGRES_USER: ${POSTGRES_USER:-sprintforge}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sprintforge}
-    volumes: [postgres_data:/var/lib/postgresql/data]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"        # exposed locally for dev tools (TablePlus, psql, etc.)
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sprintforge} -d ${POSTGRES_DB:-sprintforge}"]
       interval: 5s
       timeout: 5s
       retries: 10
+
   redis:
     image: redis:7-alpine
+    ports:
+      - "6379:6379"        # exposed locally for inspection
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
+
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     env_file: .env
-    command: sh -c "python manage.py migrate && daphne -b 0.0.0.0 -p 8000 config.asgi:application"
-    volumes: [./backend:/app]
-    ports: ["8000:8000"]
+    environment:
+      DJANGO_DEBUG: "true"
+    command: >
+      sh -c "python manage.py migrate &&
+             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
+    volumes:
+      - ./backend:/app      # live-reload source changes
+      - backend_media:/app/media
+    ports:
+      - "8000:8000"
     depends_on:
-      db: {condition: service_healthy}
-      redis: {condition: service_healthy}
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: builder       # use the builder stage in dev (has all node_modules)
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api}
       NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8000}
-    volumes: [./frontend:/app, /app/node_modules]
-    ports: ["3000:3000"]
-    depends_on: [backend]
+    # Override the production CMD with the dev server
+    command: ["npm", "run", "dev"]
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules   # keep the container's node_modules separate
+      - /app/.next          # keep the build cache in the container
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
+  backend_media:

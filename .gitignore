@@ -1,12 +1,32 @@
+# Environment — NEVER commit real secrets
 .env
 .env.*
 !.env.example
+
+# Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+backend/staticfiles/
+backend/media/
+
+# Node / Next.js
 node_modules/
 .next/
 coverage/
 dist/
+
+# SQLite (dev only — production uses PostgreSQL)
 *.sqlite3
+
+# Backups (stored locally on the VM, not in git)
+backups/
+
+# Caddy (local certs for dev, not for production)
+.caddy/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
