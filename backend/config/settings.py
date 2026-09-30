@@ -45,6 +45,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -70,8 +71,16 @@ ASGI_APPLICATION = "config.asgi.application"
 # ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------
+import dj_database_url
+
+_database_url = os.getenv("DATABASE_URL")
 _db_engine = os.getenv("DATABASE_ENGINE", "django.db.backends.postgresql")
-if _db_engine == "django.db.backends.sqlite3":
+
+if _database_url and not _database_url.startswith("sqlite"):
+    # Production: parse DATABASE_URL (e.g. from Neon or Render)
+    _ssl = "postgresql" in _database_url or "postgres" in _database_url
+    DATABASES = {"default": dj_database_url.parse(_database_url, conn_max_age=600, ssl_require=_ssl)}
+elif _db_engine == "django.db.backends.sqlite3":
     DATABASES = {"default": {
         "ENGINE": _db_engine,
         "NAME": BASE_DIR / os.getenv("SQLITE_NAME", "db.sqlite3"),
@@ -108,6 +117,13 @@ STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"          # populated by collectstatic
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"                  # mounted as a Docker volume in prod
+
+# WhiteNoise — serve static files efficiently without Nginx/Caddy
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -154,7 +170,7 @@ REST_FRAMEWORK = {
 # ---------------------------------------------------------------------------
 # Django Channels / Redis
 # ---------------------------------------------------------------------------
-if os.getenv("CHANNEL_BACKEND") == "memory":
+if os.getenv("CHANNEL_BACKEND") == "memory" or not os.getenv("REDIS_URL"):
     CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
 else:
     CHANNEL_LAYERS = {"default": {
