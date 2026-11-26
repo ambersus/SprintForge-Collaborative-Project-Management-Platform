@@ -14,7 +14,7 @@ WebSocket updates — all backed by Django REST Framework, Django Channels, Post
              │
              ▼
      ┌───────────────┐
-     │     Caddy     │  :80  (redirects to HTTPS)
+     │   
      │   HTTPS/TLS   │  :443
      └───────┬───────┘
              │
@@ -24,12 +24,10 @@ WebSocket updates — all backed by Django REST Framework, Django Channels, Post
   Next.js :3000  Django/Daphne :8000
   (App Router)  (REST + WebSockets)
                      │
-          ┌──────────┴──────────┐
-          │                     │
-          ▼                     ▼
-    PostgreSQL :5432        Redis :6379
-    (persistent vol)    (channel layer)
-```
+          ┌──────────┴                     │
+          ▼             
+    PostgreSQL :5432    
+    (persistent vol)    
 
 Public ports: **22** (SSH), **80** (HTTP→HTTPS), **443** (HTTPS).  
 All other ports are internal to Docker.
